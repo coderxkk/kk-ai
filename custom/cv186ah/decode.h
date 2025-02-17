@@ -14,12 +14,31 @@
 #include <libavcodec/avcodec.h>
 
 #include <libswscale/swscale.h>
+#include "bm_cv.h"
 
 #include "bmcv_api_ext.h"
 namespace CV186AH {
+
+    class BMFrame : public kk::Frame<bm_image> {
+
+
+    public:
+        bm_image * data_ptr() override {
+            return data_ptr_;
+        };
+
+        BMFrame(bm_image *data_ptr): Frame<bm_image>(data_ptr) {}
+
+        virtual ~BMFrame() {
+            bm_image_destroy(data_ptr_);
+        };
+
+
+    };
+
     constexpr int EXTRA_FRAME_BUFFER_NUM = 5;
 
-    class Decode : public kk::VDecode {
+    class Decode : public kk::VDecode<bm_image> {
     public:
         Decode();
 
@@ -27,7 +46,7 @@ namespace CV186AH {
 
         int start(const std::string& input) override;
 
-        kk::Frame * grab() override;
+        kk::Frame<bm_image>* grab() override;
 
         int stop() override;
     private:
@@ -39,6 +58,8 @@ namespace CV186AH {
         void background_decode();
         AVFrame* grab_ffm_frame();
         AVFrame* flush_ffm_frame();
+
+        int ffm_decode_frame(bool& got_frame);
 
         AVFrame *frame_;
         AVPacket* av_pkt_;
@@ -70,7 +91,10 @@ namespace CV186AH {
 
 
         bm_handle_t bm_handle_;
-        std::queue<kk::Frame*> frame_buffer_;
+        std::queue<bm_image*> frame_buffer_;
+        int capacity_ = 5;
+
+        std::mutex mutex_;
 
 
 

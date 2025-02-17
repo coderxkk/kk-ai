@@ -8,10 +8,20 @@
 #include <string>
 
 namespace kk {
+    template<typename T>
     class Frame {
+    public:
+        explicit Frame(T *data_ptr)
+            : data_ptr_(data_ptr) {
+        }
 
+        virtual ~Frame() = default;
+        virtual T* data_ptr() = 0;
+
+        T* data_ptr_;
     };
 
+    template<typename T>
     class VDecode {
     public:
         VDecode() = default;
@@ -19,7 +29,7 @@ namespace kk {
         virtual ~VDecode() = default;
 
         virtual int start(const std::string& input);
-        virtual Frame* grab();
+        virtual Frame<T>* grab() = 0;
         virtual int stop();
     };
 

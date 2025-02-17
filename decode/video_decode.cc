@@ -8,14 +8,14 @@
 
 
 namespace kk {
-    int VDecode::start(const std::string& input) {
-
+    template<typename T>
+    int VDecode<T>::start(const std::string& input) {
+        return 0;
     }
 
-    Frame * VDecode::grab() {
-        return nullptr;
-    }
 
-    int VDecode::stop() {
+    template<typename T>
+    int VDecode<T>::stop() {
+        return 0;
     }
 }

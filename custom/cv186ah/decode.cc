@@ -5,11 +5,13 @@
 #include <time.h>
 #include "decode.h"
 #include "Util/logger.h"
+#include <libavutil/imgutils.h>
 
 
 
 
 namespace CV186AH {
+
     Decode::Decode() {
 
         is_stream_ = false;
@@ -32,86 +34,48 @@ namespace CV186AH {
     Decode::~Decode() {
         quit_flag_ = true;
         decode_thread_.join();
+        for (auto& img :frame_buffer_) {
+            bm_image_destroy(img);
+            delete img;
+        }
+        av_frame_unref(frame_);
+        av_packet_unref(av_pkt_);
+
     }
 
 
     void Decode::background_decode() {
-        // todo(wzk) 帧队列维护
-        // while (1) {
-        //     while (frame_buffer_.size() == QUEUE_MAX_SIZE) {
-        //         if (is_rtsp) {
-        //             std::lock_guard<std::mutex> my_lock_guard(lock);
-        //             bm_image* img = queue.front();
-        //             bm_image_destroy(*img);
-        //             delete img;
-        //             img = nullptr;
-        //             queue.pop();
-        //         } else {
-        //             usleep(2000);
-        //         }
-        //     }
-        //
-        //     bm_image* img = new bm_image;
-        //     AVFrame* avframe = grabFrame();
-        //     if (quit_flag)
-        //     {
-        //         delete img;
-        //         img = nullptr;
-        //         break;
-        //     }
-        //     coded_width  = video_dec_ctx->coded_width;
-        //     coded_height = video_dec_ctx->coded_height;
-        //     avframe_to_bm_image(*(this->handle), avframe, img, false, this->data_on_device_mem,
-        //                         coded_width, coded_height);
-        //
-        //     std::lock_guard<std::mutex> my_lock_guard(lock);
-        //     queue.push(img);
-        // }
-        // return NULL;
 
+        while (!quit_flag_) {
+            while (frame_buffer_.size() == capacity_) {
+                if (is_stream_) {
+                    std::lock_guard<std::mutex> my_lock_guard(mutex_);
+                    bm_image* img = frame_buffer_.front();
+                    bm_image_destroy(img);
+                    delete img;
+                    img = nullptr;
+                    frame_buffer_.pop();
+                } else {
+                    toolkit::usleep(2000);
+                }
+            }
+
+            bm_image* img = new bm_image;
+            AVFrame* avframe = grab_ffm_frame();
+
+            int coded_width  = av_codec_ctx_->coded_width;
+            int coded_height = av_codec_ctx_->coded_height;
+            avframe_to_bm_image(bm_handle_, avframe, img, false, is_hardaccel_,
+                                coded_width, coded_height);
+
+            std::lock_guard<std::mutex> my_lock_guard(mutex_);
+            frame_buffer_.push(img);
+        }
     }
 
-    static int avcodec_decode_video2(AVCodecContext* dec_ctx, AVFrame *frame, int *got_picture, AVPacket* pkt)
-    {
-        int ret;
-        *got_picture = 0;
-        ret = avcodec_send_packet(dec_ctx, pkt);
-        if (ret == AVERROR_EOF) {
-            ret = 0;
-        }
-        else if (ret < 0) {
-            char err[256] = {0};
-            av_strerror(ret, err, sizeof(err));
-            fprintf(stderr, "Error sending a packet for decoding, %s\n", err);
-            return -1;
-        }
-        while (ret >= 0) {
-            ret = avcodec_receive_frame(dec_ctx, frame);
-            if (ret == AVERROR(EAGAIN)) {
-                ret = 0;
-                break;
-            }else if (ret == AVERROR_EOF) {
-                printf("File end!\n");
-                avcodec_flush_buffers(dec_ctx);
-                ret = 0;
-                break;
-            }
-            else if (ret < 0) {
-                fprintf(stderr, "Error during decoding\n");
-                break;
-            }
-            *got_picture += 1;
-            break;
-        }
-        if (*got_picture > 1) {
-            printf("got picture %d\n", *got_picture);
-        }
-        return ret;
-    }
 
     AVFrame* Decode::grab_ffm_frame() {
         int ret;
-        int got_frame = 0;
         timeval tv1, tv2;
         toolkit::gettimeofday(&tv1, NULL);
 
@@ -149,34 +113,32 @@ namespace CV186AH {
             if (refcount_) {
                 av_frame_unref(frame_);
             }
-            // todo(wzk)
-        //     toolkit::gettimeofday(&tv1, NULL);
-        //     ret = avcodec_decode_video2(video_dec_ctx, frame, &got_frame, &pkt);
-        //     if (ret < 0) {
-        //         av_log(video_dec_ctx, AV_LOG_ERROR, "Error decoding video frame (%d)\n", ret);
-        //         continue;
-        //     }
-        //
-        //     if (!got_frame) {
-        //         continue;
-        //     }
-        //
-        //     width = video_dec_ctx->width;
-        //     height = video_dec_ctx->height;
-        //     pix_fmt = video_dec_ctx->pix_fmt;
-        //     if (frame->width != width || frame->height != height || frame->format != pix_fmt) {
-        //         av_log(video_dec_ctx, AV_LOG_ERROR,
-        //                "Error: Width, height and pixel format have to be "
-        //                "constant in a rawvideo file, but the width, height or "
-        //                "pixel format of the input video changed:\n"
-        //                "old: width = %d, height = %d, format = %s\n"
-        //                "new: width = %d, height = %d, format = %s\n",
-        //                width, height, av_get_pix_fmt_name((AVPixelFormat)pix_fmt), frame->width, frame->height,
-        //                av_get_pix_fmt_name((AVPixelFormat)frame->format));
-        //         continue;
-        //     }
-        //
-        //     break;
+
+            toolkit::gettimeofday(&tv1, NULL);
+
+            bool got_frame = false;
+            ret = ffm_decode_frame(got_frame);
+            if (ret < 0) {
+                ErrorL << "Error decoding video frame, error code: " << ret;
+                continue;
+            }
+
+            if (!got_frame) {
+                continue;
+            }
+
+            int width = av_codec_ctx_->width;
+            int height = av_codec_ctx_->height;
+            int pix_fmt = av_codec_ctx_->pix_fmt;
+            if (frame_->width != width || frame_->height != height || frame_->format != pix_fmt) {
+                ErrorL << "Error: Width, height and pixel format have to be "
+                       "constant in a rawvideo file, but the width, height or "
+                       "pixel format of the input video changed:\n"
+                       "old: width = " + std::to_string(width) + ", height = "+std::to_string(height)+", format = "+av_get_pix_fmt_name((AVPixelFormat)pix_fmt)+"\n"
+                       "new: width = " + std::to_string(frame_->width) + ", height = "+std::to_string(frame_->height)+", format = "+av_get_pix_fmt_name((AVPixelFormat)frame_->format)+"\n";
+                continue;
+            }
+            break;
         }
         return frame_;
     }
@@ -190,6 +152,40 @@ namespace CV186AH {
             return nullptr;
         }
         return frame_;
+    }
+
+    int Decode::ffm_decode_frame(bool &got_frame) {
+        int ret = 0;
+        got_frame = false;
+        ret = avcodec_send_packet(av_codec_ctx_, av_pkt_);
+        if (ret == AVERROR_EOF) {
+            ret = 0;
+        } else if (ret < 0) {
+            char err[256] = {0};
+            av_strerror(ret, err, sizeof(err));
+            ErrorL << "Error sending a packet for decoding, error: " << err;
+            return -1;
+        }
+
+        while (ret >= 0) {
+            ret = avcodec_receive_frame(av_codec_ctx_, frame_);
+            if (ret == AVERROR(EAGAIN)) {
+                ret = 0;
+                break;
+            }else if (ret == AVERROR_EOF) {
+                InfoL << "File end! ";
+                avcodec_flush_buffers(av_codec_ctx_);
+                ret = 0;
+                break;
+            }
+            else if (ret < 0) {
+                ErrorL << "Error during decoding";
+                break;
+            }
+            got_frame = true;
+            break;
+        }
+        return ret;
     }
 
     int Decode::start(const std::string& input) {
@@ -222,12 +218,38 @@ namespace CV186AH {
         return 0;
     }
 
-    kk::Frame * Decode::grab() {
-        return VDecode::grab();
+    kk::Frame<bm_image>* Decode::grab() {
+        while (frame_buffer_.empty()) {
+            if (quit_flag_)
+                return nullptr;
+            toolkit::usleep(500);
+        }
+
+        bm_image* bm_img;
+        {
+            std::lock_guard<std::mutex> my_lock_guard(mutex_);
+            bm_img = frame_buffer_.front();
+            frame_buffer_.pop();
+        }
+
+
+        return new BMFrame<bm_image>(bm_img);
     }
 
     int Decode::stop() {
-        VDecode::stop();
+        quit_flag_ = true;
+        decode_thread_.join();
+
+        if (av_codec_ctx_) {
+            avcodec_free_context(&av_codec_ctx_);
+            av_codec_ctx_ = nullptr;
+        }
+        if (av_fmt_ctx_) {
+            avformat_close_input(&av_fmt_ctx_);
+            av_fmt_ctx_ = nullptr;
+        }
+
+
     }
 
     int Decode::init_ffm_stream(const std::string& input) {
