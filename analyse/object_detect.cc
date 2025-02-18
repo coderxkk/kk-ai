@@ -3,17 +3,21 @@
 //
 
 #include "object_detect.h"
+namespace kk {
 
-void kk::ObjectDetect::detect(Frame* frame) {
+    template<typename T>
+    void ObjectDetect<T>::detect(Frame<T>* frame) {
 
+    }
+    template<typename T>
+    void ObjectDetect<T>::preprocess(Frame<T>* frame) {
+
+    }
+    template<typename T>
+    void ObjectDetect<T>::infer() {
+    }
+    template<typename T>
+    void ObjectDetect<T>::postprocess() {
+    }
 }
 
-void kk::ObjectDetect::preprocess(Frame* frame) {
-
-}
-
-void kk::ObjectDetect::infer() {
-}
-
-void kk::ObjectDetect::postprocess() {
-}

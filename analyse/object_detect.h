@@ -9,12 +9,16 @@
 #include "video_decode.h"
 
 namespace kk {
-    class ObjectDetect {
-    public:
-        virtual void detect(Frame* frame);
-    private:
+    template<typename T>
+    class ObjectDetect<T> {
+        virtual ~ObjectDetect() = default;
 
-        virtual void preprocess(Frame* frame);
+        ObjectDetect() = default;
+
+    public:
+        virtual void detect(Frame<T>* frame);
+    private:
+        virtual void preprocess(Frame<T>* frame);
         virtual void infer();
         virtual void postprocess();
     };
