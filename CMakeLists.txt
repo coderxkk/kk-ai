@@ -68,11 +68,12 @@ aux_source_directory(decode SRC_FILES)
 
 
 #include_directories(src/sophon-v5/yolov5)
-aux_source_directory(src/sophon-v5/yolov5 SOPHON_SRC_FILES)
 
-add_executable(demo.yolov5 ${SOPHON_SRC_FILES})
+aux_source_directory(src/sophon-v5/yolov5_basic SOPHON_YOLOV5_SRC_FILES)
 
-target_link_libraries(demo.yolov5 ZLToolKit_static ${BM_LIB_DIRS} pthread )
+add_executable(demo.yolov5_basic ${SOPHON_YOLOV5_SRC_FILES})
+
+target_link_libraries(demo.yolov5_basic ZLToolKit_static ${BM_LIB_DIRS} pthread )
 
 aux_source_directory(src/sophon-v5/yolov8 SOPHON_YOLOV8_SRC_FILES)
 
